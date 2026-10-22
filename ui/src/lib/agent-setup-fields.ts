@@ -44,6 +44,7 @@ export function setupEfforts(adapter: string, model = ""): string[] {
 }
 
 export const SETUP_LOGIN_HINTS: Record<string, string> = {
+  tomcat_local: "Uses Tomcat's existing model and credential configuration on this host. Project tasks supply the working directory through Paperclip's existing project workspace settings. No model request is made by the connection test.",
   cursor:
     "Use a Cursor API key, or run agent login on the selected environment's host.",
   gemini_local:

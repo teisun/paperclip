@@ -7,6 +7,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { queryKeys } from "@/lib/queryKeys";
 import { NewAgent } from "./NewAgent";
 import { ApiError } from "@/api/client";
+import { getConfigSchema as getTomcatConfigSchema } from "../../../packages/adapters/tomcat-local/src/server/config-schema";
+import { invalidateConfigSchemaCache } from "@/adapters/schema-config-fields";
 
 const api = vi.hoisted(() => ({
   get: vi.fn(),
@@ -200,6 +202,64 @@ afterEach(async () => {
   container.remove();
 });
 describe("New agent setup", () => {
+  it("saves Tomcat schema settings and a custom model without requiring provider login", async () => {
+    state.adapters.push({ type: "tomcat_local", loaded: true, disabled: false });
+    invalidateConfigSchemaCache("tomcat_local");
+    const fetchSchema = vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: true, json: async () => getTomcatConfigSchema() } as Response);
+    try {
+      await render("tomcat_local");
+      await settle();
+      await act(async () => container.querySelector<HTMLElement>("summary")!.click());
+      expect(container.querySelector('input[type="password"]')).toBeNull();
+      await fill("Model", "my-local-model");
+      const command = container.querySelector<HTMLInputElement>("details input")!;
+      expect(command.value).toBe("tomcat");
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(command, "/opt/bin/tomcat");
+        command.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await click("Run test");
+      expect(container.textContent).toContain("Runtime checks passed");
+      await click("Finish setup");
+      expect(api.testEnvironment).toHaveBeenCalledTimes(1);
+      expect(api.hire.mock.calls[0][1]).toMatchObject({
+        adapterType: "tomcat_local",
+        adapterConfig: { command: "/opt/bin/tomcat", model: "my-local-model", permissionMode: "approve-all", nonInteractivePermissions: "deny" },
+      });
+    } finally {
+      fetchSchema.mockRestore();
+      invalidateConfigSchemaCache("tomcat_local");
+    }
+  });
+
+  it("blocks a saved remote default for Tomcat without changing it, and lets the user choose local", async () => {
+    state.adapters.push({ type: "tomcat_local", loaded: true, disabled: false });
+    settings.get.mockResolvedValue({ defaultEnvironmentId: "remote-1" });
+    envApi.list.mockResolvedValue([
+      { id: "local-1", name: "Local", driver: "local", status: "active", config: {} },
+      { id: "remote-1", name: "Remote", driver: "ssh", status: "active", config: {} },
+    ]);
+    invalidateConfigSchemaCache("tomcat_local");
+    const fetchSchema = vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: true, json: async () => getTomcatConfigSchema() } as Response);
+    try {
+      await render("tomcat_local");
+      expect(container.textContent).toContain("Tomcat requires a local environment");
+      const finish = [...container.querySelectorAll("button")].find(button => button.textContent === "Finish setup")!;
+      expect(finish.disabled).toBe(true);
+      const select = container.querySelector<HTMLSelectElement>('select[aria-label="Environment"]')!;
+      expect([...select.options].map(option => option.value)).toEqual(["", "local-1"]);
+      await act(async () => { select.value = "local-1"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+      await settle();
+      await click("Run test");
+      await click("Finish setup");
+      expect(api.testEnvironment).toHaveBeenLastCalledWith("company-1", "tomcat_local", expect.objectContaining({ environmentId: "local-1" }));
+      expect(api.hire).toHaveBeenCalledTimes(1);
+    } finally {
+      fetchSchema.mockRestore();
+      invalidateConfigSchemaCache("tomcat_local");
+    }
+  });
+
   it("records an explicit legacy choice when it matches the Windows default, then preserves it on Linux", async () => {
     settings.get.mockResolvedValue({ defaultEnvironmentId: "local-1" });
     envApi.list.mockResolvedValue([

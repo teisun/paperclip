@@ -38,6 +38,14 @@ const copy = {
   },
 } as const;
 
+const runtimeCopy = {
+  idle: { title: "Test your runtime", description: "Check the installed executable and local service without sending a model request.", action: "Run test" },
+  running: { title: "Checking runtime", description: "Checking the executable and local service…", action: "Testing…" },
+  pass: { title: "Runtime checks passed", description: "Model credentials are checked when a task runs. Review the details below.", action: "Test again" },
+  warn: { title: "Runtime needs attention", description: "Review the runtime details before assigning work.", action: "Test again" },
+  fail: { title: "Runtime check failed", description: "Check the executable and local service configuration, then try again.", action: "Retry test" },
+} as const;
+
 const prerequisiteCopy = {
   idle: { title: "Check prerequisites", description: "Check instance settings and public connection configuration.", action: "Check setup" },
   running: { title: "Checking prerequisites", description: "Checking instance settings and public connection configuration…", action: "Checking…" },
@@ -59,14 +67,14 @@ export function RuntimeTestCard({
   error?: string | null;
   onTest: () => void;
   disabled?: boolean;
-  variant?: "connection" | "prerequisites";
+  variant?: "connection" | "prerequisites" | "runtime";
 }) {
   const missingRuntime = state === "fail"
     ? result?.checks.find(check => check.code === "acpx_runtime_package_missing")
     : undefined;
   const content = missingRuntime
     ? { ...copy.fail, title: "Runtime missing", description: missingRuntime.message }
-    : (variant === "prerequisites" ? prerequisiteCopy : copy)[state];
+    : (variant === "prerequisites" ? prerequisiteCopy : variant === "runtime" ? runtimeCopy : copy)[state];
   const Icon =
     state === "running"
       ? Loader2

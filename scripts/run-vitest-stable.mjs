@@ -31,6 +31,7 @@ const nonServerProjects = [
   "@paperclipai/adapter-cursor-cloud",
   "@paperclipai/adapter-cursor-local",
   "@paperclipai/adapter-gemini-local",
+  "@paperclipai/adapter-tomcat-local",
   "@paperclipai/adapter-grok-local",
   "@paperclipai/hermes-paperclip-adapter",
   "@paperclipai/adapter-kimi-local",

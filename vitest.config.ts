@@ -15,6 +15,7 @@ export default defineConfig({
       "packages/adapters/cursor-cloud",
       "packages/adapters/cursor-local",
       "packages/adapters/gemini-local",
+      "packages/adapters/tomcat-local",
       "packages/adapters/grok-local",
       "packages/adapters/hermes",
       "packages/adapters/kimi-local",

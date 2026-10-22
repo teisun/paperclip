@@ -2293,7 +2293,7 @@ async function buildRuntime(input: {
       : null,
     // Qualified built-in ACP harnesses reconnect to the supplied MCP servers
     // on session/load. Keep their conversation identity independent of tools.
-    mcpServers: ["claude", "codex", "grok", "gemini", "kimi"].includes(acpxAgent) ? [] : mcpIdentity,
+    mcpServers: ["claude", "codex", "grok", "gemini", "kimi", "tomcat"].includes(acpxAgent) ? [] : mcpIdentity,
     secretManifestHash: shortHash(secretManifest),
     // Fold the resolved adapter env (all applied user-configured values —
     // plain, secret_ref, and stable PAPERCLIP_* config such as an explicit

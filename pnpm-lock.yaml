@@ -110,6 +110,9 @@ importers:
       '@paperclipai/adapter-pi-local':
         specifier: workspace:*
         version: link:../packages/adapters/pi-local
+      '@paperclipai/adapter-tomcat-local':
+        specifier: workspace:*
+        version: link:../packages/adapters/tomcat-local
       '@paperclipai/adapter-utils':
         specifier: workspace:*
         version: link:../packages/adapter-utils
@@ -387,6 +390,19 @@ importers:
       picocolors:
         specifier: ^1.1.1
         version: 1.1.1
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
+  packages/adapters/tomcat-local:
+    dependencies:
+      '@paperclipai/adapter-utils':
+        specifier: workspace:*
+        version: link:../../adapter-utils
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -971,6 +987,9 @@ importers:
       '@paperclipai/adapter-pi-local':
         specifier: workspace:*
         version: link:../packages/adapters/pi-local
+      '@paperclipai/adapter-tomcat-local':
+        specifier: workspace:*
+        version: link:../packages/adapters/tomcat-local
       '@paperclipai/adapter-utils':
         specifier: workspace:*
         version: link:../packages/adapter-utils
@@ -1210,6 +1229,9 @@ importers:
       '@paperclipai/adapter-pi-local':
         specifier: workspace:*
         version: link:../packages/adapters/pi-local
+      '@paperclipai/adapter-tomcat-local':
+        specifier: workspace:*
+        version: link:../packages/adapters/tomcat-local
       '@paperclipai/adapter-utils':
         specifier: workspace:*
         version: link:../packages/adapter-utils

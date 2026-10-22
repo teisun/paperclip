@@ -68,6 +68,7 @@ describe("built-in runtime connection tool delivery", () => {
     ["cursor_cloud", "invocation_context"],
     ["cursor", "environment"],
     ["gemini_local", "environment"],
+    ["tomcat_local", "native_mcp"],
     ["grok_local", "environment"],
     ["hermes_gateway", "invocation_context"],
     ["hermes_local", "environment"],
@@ -93,6 +94,23 @@ describe("built-in runtime connection tool delivery", () => {
   });
 });
 
+
+describe("Tomcat registration", () => {
+  it("exposes local ACP and ephemeral skills without claiming managed instruction or login support", () => {
+    const adapter = requireServerAdapter("tomcat_local");
+    expect(adapter).toMatchObject({
+      runtimeToolDelivery: "native_mcp", supportsLocalAgentJwt: true,
+      supportsToolRefreshOnResume: true, supportsInstructionsBundle: false,
+      requiresMaterializedRuntimeSkills: false,
+      acp: { agentId: "tomcat", skillsMode: "ephemeral" },
+      models: [{ id: "default", label: "Tomcat configured default" }],
+    });
+    expect(adapter.loginCapability).toBeUndefined();
+    expect(adapter.listSkills).toEqual(expect.any(Function));
+    expect(adapter.syncSkills).toEqual(expect.any(Function));
+    expect(adapter.getConfigSchema).toEqual(expect.any(Function));
+  });
+});
 
 describe("native ACPX environment checks", () => {
   beforeEach(() => {

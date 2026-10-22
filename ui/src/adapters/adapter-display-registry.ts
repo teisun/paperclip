@@ -87,6 +87,11 @@ const adapterDisplayMap: Record<string, AdapterDisplayInfo> = {
     icon: Cpu,
     experimental: true,
   },
+  tomcat_local: {
+    label: "Tomcat",
+    description: "Tomcat shared-service ACP harness",
+    icon: Bot,
+  },
   gemini_local: {
     label: "Gemini CLI",
     description: "Gemini CLI harness",

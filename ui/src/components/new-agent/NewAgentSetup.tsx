@@ -136,6 +136,7 @@ function Setup({
         ? "opencode_local"
         : runnerProvider === "codex" ? "codex_local" : runnerProvider
     : adapterType;
+  const ConfigFields = getUIAdapter(adapterType).ConfigFields;
   const connectionAdapter =
     brandType === "claude_local" || brandType === "codex_local" || brandType === "grok_local"
       ? brandType
@@ -152,6 +153,7 @@ function Setup({
   const [kimiModel, setKimiModel] = useState("");
   const [kimiBaseUrl, setKimiBaseUrl] = useState("");
   const [kimiProtocol, setKimiProtocol] = useState("kimi");
+  const [adapterSchemaValues, setAdapterSchemaValues] = useState<Record<string, unknown>>({});
   const [screen, setScreen] = useState<"connect" | "runtime" | "saved">(
     createdAgentId ? "saved" : connectionAdapter ? "connect" : "runtime",
   );
@@ -286,6 +288,9 @@ function Setup({
         : "Could not resolve the environment.";
   }
   const environment = envs.data?.find((env) => env.id === environmentId);
+  if (adapterType === "tomcat_local" && (managedOnly || forced.forced || (environment && environment.driver !== "local"))) {
+    environmentError = "Tomcat requires a local environment that shares the project's files with its service. Select a local environment.";
+  }
   const adapters = useQuery({
     queryKey: queryKeys.adapters.availability(companyId, environmentId),
     queryFn: () => adaptersApi.list({ companyId, environmentId }),
@@ -376,6 +381,7 @@ function Setup({
       thinkingEffort: effort,
       dangerouslyBypassSandbox: adapterType === "codex_local" && runner === "legacy",
       envBindings: nextConnection?.env ?? {},
+      ...(adapterType === "tomcat_local" ? { adapterSchemaValues } : {}),
       ...(isRunner
         ? {
             adapterSchemaValues: {
@@ -1168,6 +1174,22 @@ function Setup({
                             </Field>
                           </div>
                         )}
+                        {adapterType === "tomcat_local" && <details className="space-y-3">
+                          <summary className="cursor-pointer text-sm text-muted-foreground">Advanced</summary>
+                          <div className="grid gap-5 sm:grid-cols-2">
+                            <ConfigFields
+                              companyId={companyId} adapterType={adapterType} mode="create" isCreate hideModel
+                              values={{ ...defaultCreateValues, adapterType, adapterSchemaValues }}
+                              set={patch => {
+                                if (patch.adapterSchemaValues) {
+                                  setAdapterSchemaValues(patch.adapterSchemaValues);
+                                  resetTest();
+                                }
+                              }}
+                              config={{}} eff={(_group, _field, original) => original} mark={() => {}} models={[]}
+                            />
+                          </div>
+                        </details>}
                         {adapterType === "codex_local" && <details className="space-y-3">
                           <summary className="cursor-pointer text-sm text-muted-foreground">Advanced</summary>
                           <CodexRunnerSelect value={runner} disabled={busy}
@@ -1198,7 +1220,7 @@ function Setup({
                               Default: {environmentLabel}
                             </option>
                             {(envs.data ?? [])
-                              .filter((env) => env.status === "active" && (!managedOnly || env.driver !== "local"))
+                              .filter((env) => env.status === "active" && (!managedOnly || env.driver !== "local") && (adapterType !== "tomcat_local" || env.driver === "local"))
                               .map((env) => (
                                 <option key={env.id} value={env.id}>
                                   {environmentDisplayLabel(env)}
@@ -1209,7 +1231,7 @@ function Setup({
                       )}
                     </fieldset>
                     <RuntimeTestCard
-                      variant={isDot ? "prerequisites" : "connection"}
+                      variant={isDot ? "prerequisites" : adapterType === "tomcat_local" ? "runtime" : "connection"}
                       state={testState}
                       result={result}
                       error={error}

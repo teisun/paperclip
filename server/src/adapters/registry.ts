@@ -72,6 +72,15 @@ import {
   models as geminiModels,
 } from "@paperclipai/adapter-gemini-local";
 import {
+  execute as tomcatExecute,
+  testEnvironment as tomcatTestEnvironment,
+  sessionCodec as tomcatSessionCodec,
+  getConfigSchema as getTomcatConfigSchema,
+  listTomcatSkills,
+  syncTomcatSkills,
+} from "@paperclipai/adapter-tomcat-local/server";
+import { models as tomcatModels, agentConfigurationDoc as tomcatAgentConfigurationDoc } from "@paperclipai/adapter-tomcat-local";
+import {
   execute as grokExecute,
   listGrokSkills,
   syncGrokSkills,
@@ -249,6 +258,24 @@ const grokLoginCapability: AdapterLoginCapability = {
     const prompt = parseGrokDeviceLoginPrompt(output);
     return prompt ? { url: prompt.url, code: prompt.code } : null;
   },
+};
+
+const tomcatLocalAdapter: ServerAdapterModule = {
+  type: "tomcat_local",
+  execute: tomcatExecute,
+  testEnvironment: tomcatTestEnvironment,
+  sessionCodec: tomcatSessionCodec,
+  getConfigSchema: getTomcatConfigSchema,
+  listSkills: listTomcatSkills,
+  syncSkills: syncTomcatSkills,
+  models: tomcatModels,
+  agentConfigurationDoc: tomcatAgentConfigurationDoc,
+  acp: { agentId: "tomcat", skillsMode: "ephemeral", prerequisites: { nodeRange: ">=24.11.0" } },
+  runtimeToolDelivery: "native_mcp",
+  supportsLocalAgentJwt: true,
+  supportsToolRefreshOnResume: true,
+  supportsInstructionsBundle: false,
+  requiresMaterializedRuntimeSkills: false,
 };
 
 const claudeLocalAdapter: ServerAdapterModule = {
@@ -911,6 +938,7 @@ function registerBuiltInAdapters() {
     cursorCloudAdapter,
     cursorLocalAdapter,
     geminiLocalAdapter,
+    tomcatLocalAdapter,
     grokLocalAdapter,
     kimiLocalAdapter,
     hermesGatewayAdapter,

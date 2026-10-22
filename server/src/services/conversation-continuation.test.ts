@@ -3,8 +3,14 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { agents, companies, createDb, heartbeatRuns, issues, issueRecoveryActions, type Db } from "@paperclipai/db";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "../__tests__/helpers/embedded-postgres.js";
-import { conversationRecoveryActionPredicate, getConversationOwnershipBlocker } from "./conversation-continuation.js";
+import { conversationRecoveryActionPredicate, getConversationOwnershipBlocker, isConversationAdapter, runUsedConversationAdapter } from "./conversation-continuation.js";
 import { deliverExecutionStatuses } from "./execution-status-delivery.js";
+
+it("registers Tomcat as a conversation adapter without classifying process actions as conversations", () => {
+  expect(isConversationAdapter("tomcat_local")).toBe(true);
+  expect(isConversationAdapter("process")).toBe(false);
+  expect(isConversationAdapter("http")).toBe(false);
+});
 
 const support = await getEmbeddedPostgresTestSupport();
 const describePostgres = support.supported ? describe : describe.skip;
@@ -59,6 +65,25 @@ describePostgres("execution identity query contracts", () => {
     expect(await getConversationOwnershipBlocker(db, f.companyId, f.issueId)).toMatchObject({ runId: legacy.id });
     await db.update(heartbeatRuns).set({ processPid: null }).where(eq(heartbeatRuns.id, legacy.id));
     expect(await getConversationOwnershipBlocker(db, f.companyId, f.issueId)).toBeNull();
+  });
+  it("keeps Tomcat historical continuation subject to the existing ownership gate", async () => {
+    const f = await fixture();
+    const stopped = await run(f, { issueId: f.issueId }, null, process.pid);
+    const [historical] = await db.update(heartbeatRuns).set({
+      runnerProfileJson: { adapterDispatch: { adapterType: "tomcat_local" } },
+    }).where(eq(heartbeatRuns.id, stopped.id)).returning();
+    expect(await runUsedConversationAdapter(db, historical)).toBe(true);
+    expect(await getConversationOwnershipBlocker(db, f.companyId, f.issueId))
+      .toMatchObject({ runId: stopped.id, cause: "execution_owner_active" });
+    await db.update(heartbeatRuns).set({ processPid: null }).where(eq(heartbeatRuns.id, stopped.id));
+    expect(await getConversationOwnershipBlocker(db, f.companyId, f.issueId)).toBeNull();
+    const [action] = await db.insert(issueRecoveryActions).values({
+      companyId: f.companyId, sourceIssueId: f.issueId, kind: "active_run_watchdog", status: "resolved", ownerType: "board",
+      cause: "legacy_execution_requires_reconciliation", fingerprint: "tomcat-history", evidence: { runId: stopped.id }, nextAction: "Fixture",
+    }).returning();
+    const matches = await db.select({ id: issueRecoveryActions.id }).from(issueRecoveryActions)
+      .where(and(eq(issueRecoveryActions.companyId, f.companyId), conversationRecoveryActionPredicate()));
+    expect(matches).toEqual([{ id: action.id }]);
   });
   it("delivers canonical same-company task IDs and keeps malformed IDs private", async () => {
     const f = await fixture(), foreign = await fixture();
