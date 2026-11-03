@@ -6,17 +6,19 @@ navigation: {"section":"Projects and execution","sectionOrder":40,"order":30}
 
 A project or task can use a managed workspace with inspectable files, Git state, services, and runtime controls. Operators can follow its lifecycle through provisioning, use, and closure.
 
+Feature ID: `workspaces`.
+
 Implementation: [workspace list](../../ui/src/pages/Workspaces.tsx), [execution workspace](../../ui/src/pages/ExecutionWorkspaceDetail.tsx), [project workspace](../../ui/src/pages/ProjectWorkspaceDetail.tsx).
 
 Agent access: [companion](../agent-access-map/workspaces.md).
 
 ## Sub-features
 
-- `binding`: identify the workspace actually bound to a task/run.
-- `provisioning`: observe readiness and failures instead of inferring readiness from a created record.
-- `services`: start/stop supported services and inspect logs and exposed endpoints.
-- `files-git`: inspect workspace files and repository state used for the deliverable.
-- `closure`: close/reopen or reconcile through permitted controls without losing work.
+- `binding`: `workspaces/binding` — identify the workspace actually bound to a task/run.
+- `provisioning`: `workspaces/provisioning` — observe readiness and failures instead of inferring readiness from a created record.
+- `services`: `workspaces/services` — start/stop supported services and inspect logs and exposed endpoints.
+- `files-git`: `workspaces/files-git` — inspect workspace files and repository state used for the deliverable.
+- `closure`: `workspaces/closure` — close/reopen or reconcile through permitted controls without losing work.
 
 For a historical failed export whose exact sandbox was destroyed, the task recovery
 notice offers **Continue from saved sources** to an authorized board operator.
@@ -41,6 +43,15 @@ Live staging acceptance remains separate from these regression tests.
 
 Use the task’s workspace card or Files panel and follow its workspace link.
 
+Native artifact-copy verification: in an admitted standard-mode task, save a
+synthetic API response and call `download_artifact` with its saved identity and a
+new workspace-relative filename. Independently inspect the file's complete byte
+count and SHA-256 through the admitted filesystem. Retry the identical request;
+reject a conflicting destination, symlink, revoked authority and foreign artifact.
+The transfer does not change the content's untrusted status. See
+[API tools](../../doc/runner-api-tools.md#verified-artifact-installation) for support
+and limits. Provider-free regression evidence is not live remote qualification.
+
 ### `workspace-management`
 
 Open `/workspaces`, a project workspace, or `/execution-workspaces/:workspaceId` and its Services/Configuration/Runtime logs views.
@@ -55,24 +66,80 @@ Automated: [workspace card](../../ui/src/components/IssueWorkspaceCard.test.tsx)
 
 Manual: Run a task that writes a small file, follow the bound workspace, and inspect the file and revision. Reload and verify links still refer to the same workspace, not another checkout or a stale run.
 
-For fresh standard-trust tasks using an implicit repository default, create a
-disposable project checkout whose shared Git storage overlaps a private task
-workspace. Verify that source admission creates a separate checkout from the
-configured remote, with no private local branches, commits or shared Git storage.
-Reusing, closing and reopening that task must retain the company/task-bound source;
-a failed workspace save must clean up only its owned checkout. Explicit workspace,
-parent/channel selections, literal or task-independent branch templates, low-trust
-tasks, and local or credential-bearing remote
-URLs must not use this fallback. A selected checkout requires recorded default
-provenance. Create tasks
-through the task service with an explicit checkout ID or an inherited parent
-source but no typed selection; verify denial, no clone or environment acquisition,
-and preservation of unpublished branch commits. Older ambiguous bindings and
-source choices changed during preparation must retain the denial. The
-[remote-source tests](../../server/src/services/isolated-remote-workspace-source.test.ts)
-and [preparation tests](../../server/src/services/heartbeat/workspace-preparation.test.ts)
-exercise the real Git isolation and lifecycle guards. They do not qualify live
-remote credentials or a provider deployment.
+For experimental native remote storage, follow the
+[deployment prerequisites and explicit local import](../../doc/DEVELOPING.md#experimental-native-remote-workspace-storage).
+With durable Postgres, S3, and a stable key configured, a new disposable
+Paperclip Runner sandbox task with a supported fresh source enrolls by default.
+Verify an explicit `remoteWorkspaceStorageEnabled: false` disables new enrollment,
+and an existing host workspace or configured local folder stays on its legacy
+path until explicitly imported. An enrolled workspace must keep remote authority
+when enrollment is disabled and fail admission if persistence prerequisites are
+lost. Write ordinary/binary files and, for Git, staged, unstaged, and unpushed
+work. Finish the run and inspect its saved version. Replace the webserver and
+verify the next task turn uses the same remote folder without a controller
+checkout. Then release the saved allocation and verify a new one restores the
+files, Git state, and managed same-project repositories without the old sandbox
+or original Git remote. Read-only cross-project referenced folders must fail
+admission. Separate workspaces may run concurrently; shared concurrent writers
+must be rejected.
+
+Repeat remote capture with enough free space for the archive and normalized Git
+metadata, but not another working-tree copy. Verify saved files and Git state
+after restore. A concurrent file change must fail capture without publishing a
+receipt or retaining a partial archive. The
+[portable archive suite](../../server/src/services/remote-workspace-snapshot-archive.test.ts)
+checks the space allowance and concurrent-change boundary; its filesystem quota
+is controlled test input, not a live sandbox qualification.
+
+Create a child that inherits a saved isolated workspace or operator branch.
+Verify it continues the same files after the prior writer saves, including on a
+new allocation. Two bound children must not acquire concurrent writer authority.
+The [reservation regression](../../server/src/services/remote-workspace-reservation.test.ts)
+and [saved-file lifecycle suite](../../server/src/services/remote-workspaces.integration.test.ts)
+exercise inheritance, access checks, and file continuity with real PostgreSQL.
+Their filesystem transport is local test execution, not live sandbox/provider proof.
+
+The Files panel must label **Live workspace** or **Saved copy** with its save
+time. Confirm browse, preview, and download agree. A missing allocation with
+unsaved work must report unavailability rather than show an old save as current.
+After a final save clears dirty state and writer authority, Files must read the
+current committed saved version even while the old allocation is still recorded
+or its read transport is unavailable. Confirm the original bytes and Saved copy
+label; a new writer or dirty state must retain the live-read requirement.
+Close must retain dirty/unfinished work and reject custom cleanup/teardown
+commands; a clean saved workspace can release compute while retaining files.
+Manual runtime commands, jobs, repairs, and service starts must reject remote
+workspaces before local filesystem access; agent task execution remains supported.
+The archive, storage, migration, retention, and lifecycle regression suites
+exercise these contracts separately. This recipe records required deployment
+checks; it does not claim a live provider or webserver replacement passed.
+
+For a repository-free isolated task, complete an explicitly fresh retry, save a
+marker, then send ordinary new input. It must retain the bound attempt directory
+and marker. A later explicitly fresh retry must use a separate clean sibling.
+The [production preparation regression](../../server/src/services/heartbeat/workspace-preparation.test.ts)
+uses PostgreSQL and real private directories; it also rejects changed bindings.
+The [directory boundary suite](../../server/src/services/isolated-task-directory.test.ts)
+checks namespace, missing-directory and symlink refusal. Neither suite proves a
+hosted provider turn.
+
+For slow source preparation, configure a short PostgreSQL idle-transaction
+timeout in a disposable instance. Hold preparation beyond that interval and
+verify it retains its source lock, rejects competing preparation, and leaves
+ordinary reads available. The [source-lock regression](../../server/src/services/isolated-remote-workspace-source-lock.test.ts)
+uses real PostgreSQL; it does not prove provider startup or deployed recovery.
+
+Create an authorized task whose selected checkout is also used by private historical
+tasks and many old workspace records. Start and reuse it without a historical-source
+permission failure or remote-clone fallback. Verify task-bound file browsing works,
+while private historical task content and operation logs remain denied through app
+APIs. Root traversal and symlink escapes must remain rejected. The OS and execution
+environment own isolation between agents; Paperclip does not classify existing bytes
+by the task that wrote them. Existing `workspace_source_restricted` failures remain
+inspectable and recoverable, but new preparation does not produce that failure from
+filesystem history. Current trust, credential, binding, and publication checks still
+apply. The preparation-history benchmark supplies local service measurements, not
+provider deployment qualification.
 
 For reconstructable Git expiration, finish a disposable task tree, run the
 internal lifecycle sweep after its 24-hour grace, and inspect candidate/reclaimed
@@ -93,6 +160,14 @@ preparation API to add an authorized repository beneath that workspace;
 repeat the request and verify that it reuses the checkout and pinned revision.
 See [task binding tests](../../server/src/__tests__/task-workspace-binding.test.ts)
 and [repository access tests](../../server/src/__tests__/task-workspace-repositories-trust.test.ts).
+
+For native unfinished work, yield after preparation is staged and verify that
+normal admission prepares the repository and continues the same task without
+a timer or user message. A staging-only task that finishes must not wake again.
+The saved continuation must disappear when the repository is ready or belongs
+to another task. Source regressions cover those eligibility checks; a live
+provider journey is required to qualify the complete automatic resume.
+
 An existing projectless folder alias of a sandbox-restricted project must be
 rejected for a standard local task before its adapter executes. Repeat after
 relocating the configured source; retained ownership must still enforce the
@@ -139,9 +214,16 @@ Manual: Provision a disposable workspace, wait for readiness, start an available
 
 - A link or running badge does not prove the service is reachable from the user’s browser.
 - Workspace IDs, runtime leases, and repository paths are not interchangeable.
-- Terminal workspace cleanup wakes after committed task/workspace/PR changes and
-  restores cooldown deadlines at startup. Empty lanes stop scanning. Display Git
-  results can lag by thirty seconds. Compatible records share one advisory Git
+- Remote workspace snapshots require external Postgres, S3, and the original
+  encryption key. Edits after the last save still depend on the sandbox; there
+  is no periodic workspace backup. The experiment does not remove the instance
+  volume or establish zero-outage deployment for other data paths.
+- Terminal workspace cleanup wakes after committed task/workspace/PR/finalization changes and
+  restores cooldown deadlines at startup. Empty lanes stop scanning. Metadata reads
+  do not inspect storage. Providers without ancestry inspection use finalized HEAD
+  and destination-aware GitHub proof before storage checks. Associated squash PRs
+  need not be recorded manually; wrong HEAD/base, unreachable integration commits,
+  or unavailable credentials retain the workspace. Compatible records share one advisory Git
   inspection per bounded page, while each record keeps its own delivery check.
   Destructive cleanup starts a separate Git scan even if an older scan is running.
   The [worker tests](../../server/src/__tests__/terminal-workspace-work.test.ts)
@@ -158,7 +240,10 @@ Manual: Provision a disposable workspace, wait for readiness, start an available
 
 #### `closure`
 
+Capability ID: `workspaces/closure`.
+
 Scope: ui
 Storybook: Close-readiness checks, pending changes/active runs, blocked/pending/error close, retry close and eligible reopening.
 Production: Confirm owned workspace shutdown, preserved files/Git state and permitted lifecycle transition/reopening; Browser Use session closure is unrelated.
+Workspace detail and operation-history reads do not inspect Git or remote storage. Delivery is unknown until explicit close readiness or lifecycle inspection. Verify that these reads work during an inspection outage, while destructive close still refuses unverified data.
 Sources: Source: [ExecutionWorkspaceDetail.tsx](../../ui/src/pages/ExecutionWorkspaceDetail.tsx), [ExecutionWorkspaceCloseDialog.tsx](../../ui/src/components/ExecutionWorkspaceCloseDialog.tsx), [execution-workspaces.ts](../../server/src/routes/execution-workspaces.ts). Tests: [execution-workspaces-routes.test.ts](../../server/src/__tests__/execution-workspaces-routes.test.ts), [execution-workspaces-service.test.ts](../../server/src/__tests__/execution-workspaces-service.test.ts), [execution-workspace-reopen.test.ts](../../server/src/__tests__/execution-workspace-reopen.test.ts)

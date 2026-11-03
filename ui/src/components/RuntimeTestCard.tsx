@@ -61,6 +61,8 @@ export function RuntimeTestCard({
   onTest,
   disabled = false,
   variant = "connection",
+  metadataOnly = false,
+  tone = "card",
 }: {
   state: TestState | "warn";
   result: AdapterEnvironmentTestResult | null;
@@ -68,6 +70,8 @@ export function RuntimeTestCard({
   onTest: () => void;
   disabled?: boolean;
   variant?: "connection" | "prerequisites" | "runtime";
+  metadataOnly?: boolean;
+  tone?: "card" | "tile";
 }) {
   const missingRuntime = state === "fail"
     ? result?.checks.find(check => check.code === "acpx_runtime_package_missing")
@@ -75,6 +79,11 @@ export function RuntimeTestCard({
   const content = missingRuntime
     ? { ...copy.fail, title: "Runtime missing", description: missingRuntime.message }
     : (variant === "prerequisites" ? prerequisiteCopy : variant === "runtime" ? runtimeCopy : copy)[state];
+  const description = metadataOnly && state === "idle"
+    ? "Verify your saved token, runtime installation, and selected model without sending a model prompt."
+    : metadataOnly && state === "running"
+      ? "Checking the saved token, runtime, and selected model…"
+      : content.description;
   const Icon =
     state === "running"
       ? Loader2
@@ -86,9 +95,10 @@ export function RuntimeTestCard({
   return (
     <section
       aria-label="Runtime test"
-      className="rounded-lg border border-border bg-card"
+      data-agent-tile={tone === "tile" ? "" : undefined}
+      className={tone === "tile" ? "rounded-lg bg-(--agent-detail-tile)" : "rounded-lg border border-border bg-card"}
     >
-      <div className="flex items-start gap-3 p-4 sm:items-center">
+      <div className={cn("flex items-start gap-3 sm:items-center", tone === "tile" ? "p-(--agent-detail-module-inset)" : "p-4")}>
         <span
           aria-hidden="true"
           className={cn(
@@ -115,7 +125,7 @@ export function RuntimeTestCard({
           >
             <h3 className="text-sm font-medium">{content.title}</h3>
             <p className="text-xs leading-relaxed text-muted-foreground">
-              {state === "fail" && error ? error : content.description}
+              {state === "fail" && error ? error : description}
             </p>
           </div>
           <Button

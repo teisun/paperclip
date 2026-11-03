@@ -3,13 +3,13 @@ import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
-  agentInstructionWorkingCopies, agents, agentApiKeys, agentWakeupRequests, companies, companySecretProposals, createDb,
+  agentInstructionWorkingCopies, agents, agentApiKeys, agentWakeupRequests, budgetPolicies, companies, companySecretProposals, createDb,
   adapterAuthSessions, environments, environmentLeases, executionWorkspaces,
-  feedbackExports, feedbackVotes,
+  feedbackExports, feedbackVotes, companySkills, companySkillVersions, companySkillRepositorySnapshots,
   heartbeatRuns, issues, issueWatchdogs, issueThreadInteractions, issueQuestionResponseDeliveries,
   projects, projectWorkspaces, routines, routineTriggers, toolApplications, toolConnections, workspaceOperations, executionWorkspaceRuntimeLeases, type Db,
 } from "@paperclipai/db";
-import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
+import { EMBEDDED_POSTGRES_TEST_TIMEOUT_MS, getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 import { readIdleSleepSafety, type IdleSleepDrainStatus } from "../services/idle-sleep-safety.js";
 
 const now = Date.UTC(2020, 0, 1);
@@ -173,7 +173,7 @@ if (!support.supported) console.warn(`Skipping idle sleep Postgres tests: ${supp
     db = createDb(database.connectionString);
   }, 60_000);
   afterEach(async () => { await db.execute(sql`TRUNCATE companies, plugins, environments CASCADE`); });
-  afterAll(async () => { await database?.cleanup(); });
+  afterAll(async () => { await database?.cleanup(); }, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS);
 
   const read = () => readIdleSleepSafety(db, owned, () => now, ownerId, emptyLocal);
   const readScheduled = () => readIdleSleepSafety(db, owned, () => now, ownerId, emptyLocal, undefined, undefined, true);
@@ -186,6 +186,66 @@ if (!support.supported) console.warn(`Skipping idle sleep Postgres tests: ${supp
     await db.insert(heartbeatRuns).values({ id: runId, companyId, agentId, invocationSource: "on_demand", status: "succeeded" });
     return { companyId, agentId, runId };
   }
+
+  it.each(["true", "false"])("lets optional conversion retries sleep with package storage %s", async enabled => {
+    const previous = process.env.PAPERCLIP_SKILL_PACKAGE_STORAGE_ENABLED;
+    process.env.PAPERCLIP_SKILL_PACKAGE_STORAGE_ENABLED = enabled;
+    try {
+      const { companyId } = await seed();
+      const [skill] = await db.insert(companySkills).values({ companyId, key: "legacy", slug: "legacy", name: "Legacy", markdown: "original" }).returning();
+      await db.insert(companySkillVersions).values({ companyId, companySkillId: skill!.id, revisionNumber: 1,
+        fileInventory: [{ path: "SKILL.md", kind: "skill", content: "original" }], migrationAt: new Date(Date.now() + 60 * 60_000) });
+      await db.insert(companySkillRepositorySnapshots).values({ companyId, contentHash: "a".repeat(64),
+        fileInventory: [{ path: "SKILL.md", kind: "skill", content: "original" }], migrationAt: new Date(0) });
+      expect(await read()).toEqual(none);
+    } finally {
+      if (previous === undefined) delete process.env.PAPERCLIP_SKILL_PACKAGE_STORAGE_ENABLED;
+      else process.env.PAPERCLIP_SKILL_PACKAGE_STORAGE_ENABLED = previous;
+    }
+  });
+
+  it("keeps a failed startup intent awake after its local worker counter settles", async () => {
+    const f = await seed();
+    expect(await read()).toEqual(none);
+    const finish = beginIdleTrackedWork();
+    await db.update(heartbeatRuns).set({ status: "running", runtimeMode: "native", nativePhase: "observed",
+      runnerProfileJson: { nativeStartupContext: { contextId: randomUUID(), deadlineAtMs: now - 1 } } }).where(eq(heartbeatRuns.id, f.runId));
+    finish();
+    expect(idleWorkSnapshot().active).toBe(0);
+    expect(await read()).toEqual(present);
+    await db.update(heartbeatRuns).set({ status: "cancelled" }).where(eq(heartbeatRuns.id, f.runId));
+    expect(await read()).toEqual(none);
+  });
+
+  it("retains committed budget stop intent until its exact generation is delivered", async () => {
+    const f = await seed();
+    const [policy] = await db.insert(budgetPolicies).values({ companyId: f.companyId, scopeType: "company", scopeId: f.companyId,
+      windowKind: "calendar_month_utc", enforcementVersion: 2, enforcementDeliveredVersion: 1 }).returning();
+    expect(await read()).toEqual(present);
+    await db.update(budgetPolicies).set({ enforcementDeliveredVersion: 2 }).where(eq(budgetPolicies.id, policy.id));
+    expect(await read()).toEqual(none);
+  });
+
+  it("retains company hold projection and lifecycle operations through admission drain", async () => {
+    const f = await seed();
+    await db.update(companies).set({ status: "paused" }).where(eq(companies.id, f.companyId));
+    expect(await read()).toEqual(present);
+    await db.update(agents).set({ status: "paused", lifecycleState: "pausing", lifecycleHolds: ["company_paused"] }).where(eq(agents.id, f.agentId));
+    expect(await read()).toEqual(present);
+    await db.update(agents).set({ lifecycleState: "paused" }).where(eq(agents.id, f.agentId));
+    expect(await read()).toEqual(none);
+  });
+
+  it("retains a committed budget Stop after terminal status until delivery is acknowledged", async () => {
+    const f = await seed();
+    const intent = { companyId: f.companyId, scopeType: "agent", scopeId: f.agentId, policyId: randomUUID(), version: 1 };
+    await db.update(heartbeatRuns).set({ status: "cancelled", resultJson: { startupCancellation: { budgetEnforcement: intent } } })
+      .where(eq(heartbeatRuns.id, f.runId));
+    expect(await read()).toEqual(present);
+    await db.update(heartbeatRuns).set({ resultJson: { startupCancellation: { budgetEnforcement: { ...intent, deliveredAt: new Date(now).toISOString() } } } })
+      .where(eq(heartbeatRuns.id, f.runId));
+    expect(await read()).toEqual(none);
+  });
 
   async function feedbackHistory(status: string, change: Partial<typeof feedbackExports.$inferInsert> = {}) {
     const f = await seed();

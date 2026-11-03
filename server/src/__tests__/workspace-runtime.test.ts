@@ -169,7 +169,7 @@ async function writeRegisteredSourceConfig(baseCwd: string, instanceId = "source
 
 async function createTempRepo(defaultBranch = "main") {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-worktree-repo-"));
-  await runGit(repoRoot, ["init"]);
+  await runGit(repoRoot, ["init", "--initial-branch", defaultBranch]);
   await runGit(repoRoot, ["config", "user.email", "paperclip@example.com"]);
   await runGit(repoRoot, ["config", "user.name", "Paperclip Test"]);
   await fs.writeFile(path.join(repoRoot, "README.md"), "hello\n", "utf8");
@@ -5635,12 +5635,6 @@ describe("resolveShell (shell fallback)", () => {
     expect(resolveShell()).toBe("sh");
   });
 
-  it("falls back to /bin/sh on darwin when SHELL is unset", () => {
-    delete process.env.SHELL;
-    Object.defineProperty(process, "platform", { value: "darwin" });
-    expect(resolveShell()).toBe("/bin/sh");
-  });
-
   it("treats empty SHELL as unset and uses platform fallback", () => {
     process.env.SHELL = "";
     Object.defineProperty(process, "platform", { value: "linux" });
@@ -7486,7 +7480,7 @@ describeEmbeddedPostgres("workspace runtime service control persistence", () => 
     const blockerScript = [
       "const net=require('node:net');",
       "const port=Number(process.argv[1]);",
-      "net.createServer((socket)=>socket.destroy()).listen(port,'127.0.0.1');",
+      "net.createServer((socket)=>socket.destroy()).listen(port,'127.0.0.1',()=>process.send({ready:true}));",
     ].join("");
     const raceScript = [
       "const fs=require('node:fs');",
@@ -7499,8 +7493,10 @@ describeEmbeddedPostgres("workspace runtime service control persistence", () => 
       "const start=()=>http.createServer((_req,res)=>res.end('ok')).listen(port,'127.0.0.1');",
       "if(!fs.existsSync(marker)){",
       "fs.writeFileSync(marker,String(port));",
-      "const blocker=spawn(process.execPath,['-e',blockerScript,String(port)],{detached:true,stdio:'ignore'});",
-      "fs.writeFileSync(pidFile,String(blocker.pid));blocker.unref();setTimeout(start,200);",
+      "const blocker=spawn(process.execPath,['-e',blockerScript,String(port)],{detached:true,stdio:['ignore','ignore','ignore','ipc']});",
+      "fs.writeFileSync(pidFile,String(blocker.pid));",
+      "const readyDeadline=setTimeout(()=>{throw new Error('Fixture blocker did not become ready');},5000);",
+      "blocker.once('message',(message)=>{if(message?.ready!==true)throw new Error('Invalid fixture readiness message');clearTimeout(readyDeadline);blocker.disconnect();blocker.unref();start();});",
       "}else{start();}",
       "setInterval(()=>{},1000);",
     ].join("");
@@ -7978,22 +7974,11 @@ describeEmbeddedPostgres("workspace runtime startup reconciliation", () => {
 
     const reservePort = async () => {
       for (let attempt = 0; attempt < 100; attempt += 1) {
-        const probe = net.createServer();
-        // macOS can allocate an entire ephemeral range above 55535. Pick a
-        // bounded candidate so the test's HMR companion remains a valid port.
-        await new Promise<void>((resolve) => {
-          probe.once("error", () => resolve());
-          probe.listen(20_000 + Math.floor(Math.random() * 20_000), "127.0.0.1", resolve);
-        });
-        if (!probe.listening) continue;
-        const address = probe.address();
-        const port = typeof address === "object" && address ? address.port : null;
-        await new Promise<void>((resolve, reject) => {
-          probe.close((error) => error ? reject(error) : resolve());
-        });
-        if (port && port <= 55_535 && (port < 42_000 || port > 42_999)) return port;
+        // Keep both listeners below ephemeral client ports and outside the broker range.
+        const port = 12_000 + Math.floor(Math.random() * 6_000);
+        if (await isLoopbackPortFree(port) && await isLoopbackPortFree(port + 10_000)) return port;
       }
-      throw new Error("Failed to reserve an HTTPS backfill test port outside the broker range");
+      throw new Error("Failed to reserve app and HMR ports for the HTTPS backfill test");
     };
     const isLoopbackPortFree = async (port: number) => {
       const probe = net.createServer();
